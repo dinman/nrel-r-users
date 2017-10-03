@@ -1,0 +1,586 @@
+---
+title: "NREL R User Group: ggplot Introduction"
+author: "Rebecca Hanes"
+date: "October 3, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(ggExtra)
+library(reshape2)
+```
+
+# Preliminaries
+
+Install and load the `ggplot2`, `ggExtra` and `reshape2` packages.  Other packages may be required depending on what packages you already have installed.
+
+# Data structure
+
+Example of wide format data:
+
+```{r, echo = TRUE}
+names(midwest)
+
+head(midwest, n = 10)
+
+```
+
+Use the `melt` function in the `reshape2` package to convert wide format data to long format, and the `reshape` function to convert long format data to wide.  Wide format data tends to be more human-readable than long format data, especially for smaller data sets.
+
+Convert wide format data to long format and back again:
+
+```{r, echo = TRUE}
+
+# original data midwest is in wide format, convert to long format
+midwest.long = melt(midwest,
+                    id.vars = c('PID', 'county', 'state', 'area', 'category'))
+
+# what are the new column names in long format?
+names(midwest.long)
+
+# what does the melted df look like?
+head(midwest.long, n = 10)
+
+# what's in the variable column?
+unique(midwest.long$variable)
+
+# reshape the long format data back to wide format
+midwest.wide = reshape(midwest.long,
+                       v.names = 'value',   # column that contains observations
+                       timevar = 'variable', # column that contains variable names
+                       idvar = c('PID', 'county', 'state', 'area', 'category'),  # columns that ID individual records
+                       direction = 'wide')  # converts to wide format
+
+# Now what are the column names?
+names(midwest.wide)
+
+# What does the reshaped df look like?
+head(midwest.wide, n = 10)
+
+```
+
+## Sidenote: Variable names
+
+In long format, variable names should contain only one piece of information.  For example, the variable name `percamerindian` has two pieces of information: that the observation is a percentage, and that the observation is of the Native American population.  Some processing might be required to make plotting easier:
+
+```{r, echo = TRUE}
+
+# convert variable column from factor to character for easier processing
+midwest.long$variable = as.character(midwest.long$variable)
+
+# add column where "perc" or "pop" can be stored
+midwest.long$var.type = NA
+
+# fill $var.type with correct observation type
+midwest.long$var.type[substr(midwest.long$variable, start = 1, stop = 3) == 'pop'] = 'pop'
+midwest.long$var.type[substr(midwest.long$variable, start = 1, stop = 3) == 'per'] = 'pct'
+midwest.long$var.type[!(substr(midwest.long$variable, start = 1, stop = 3) %in% c('per', 'pop'))] = 'other'
+
+# add column to store the rest of the variable name
+midwest.long$var.name = midwest.long$variable
+
+# fill the new variable name column according to the $var.type value
+midwest.long$var.name[midwest.long$var.type == 'pop'] = mapply(substr,
+                                                               midwest.long$var.name[midwest.long$var.type == 'pop'],
+                                                               start = 4,
+                                                               stop = nchar(midwest.long$variable[midwest.long$var.type == 'pop']))
+midwest.long$var.name[midwest.long$var.type == 'pct'] = mapply(substr,
+                                                               midwest.long$var.name[midwest.long$var.type == 'pct'],
+                                                               start = 5,
+                                                               stop = nchar(midwest.long$variable[midwest.long$var.type == 'pct']))
+
+# delete variable column which is now redundant
+midwest.long$variable = NULL
+
+# what does the processed data frame look like?
+head(midwest.long, n = 10)
+```
+
+# Aesthetics and faceting
+
+Depending on the plot type, available aesthetics include axis, line or border color ("color" or "colour"), area color ("fill"), point size, line thickness and line type.  When aesthetics are controlled by categorical variables, they're specified in the `aes()` command inside `ggplot()` or `geom_plottype()` commands.
+
+```{r, echo = TRUE}
+
+names(diamonds)
+
+diamonds.trim = subset(diamonds, cut %in% c('Fair', 'Ideal') & clarity %in% c('I1', 'IF'))
+
+ggplot(diamonds.trim, aes(x = carat, y = price)) +
+  geom_point(aes(colour = color, shape = cut, size = table))
+
+```
+
+Using too many aesthetics on the same plot can be confusing and make it difficult to interpret the plot.  (Rule of thumb: Three separate legends is probably too complex; more than three separate legends is definitely too complex.)  Adding facets along some categorical variables can increase clarity and free up aesthetics for use with other variables.  Facets separate one plot into multiple sub-plots based on factor variable levels (categories).
+
+```{r, echo = TRUE}
+
+ggplot(diamonds.trim, aes(x = carat, y = price)) +
+  geom_point(aes(colour = color, size = table)) +
+  facet_grid(cut ~ clarity)
+
+```
+
+Side note: Facet labels are one of the few plot labels that can't be controlled with ggplot commands.  To re-label facets, the data frame itself must be altered.
+
+# Appearances
+
+Appearances are set manually, outside the `aes()` command, unlike aesthetics which are controlled by categorical variables.
+
+```{r, echo = TRUE, fig.height = 8}
+
+ggplot(diamonds.trim, aes(x = carat, y = price)) +
+  
+  ## change the point shape to one which has a color and fill, to add a black outline to points
+  # recall that "fill" sets the area color while "colo(u)r" sets the line or border color
+  geom_point(aes(fill = color, size = table),
+             shape = 21, colour = 'black') +
+  facet_grid(cut ~ clarity) +
+
+  
+  ## change plot background color to white
+  theme_bw() +
+  
+  ## set axis labels
+  ylab('Price (USD/Diamond)') +
+  xlab('Carat') +
+  
+  ## change point colors
+  scale_color_brewer(palette = 'Set1') +
+  
+  ## tweak legend
+  guides(fill = guide_legend('Color',  # change legend title
+                             nrow = 4,  # arrange entries in 4 rows
+                             override.aes = list(size = 8),  # increase the size of the points in legend
+                             title.position = 'top',  # move title to left of legend
+                             title.hjust = 0.5),  # vertically center title in legend
+         size = guide_legend('Table',
+                             nrow = 4,
+                             title.position = 'top',
+                             title.hjust = 0.5)) +
+  
+  ## do a variety of things
+  theme(legend.position = 'bottom', # move legends to bottom of plot
+        # draw a box around each legend
+        legend.background = element_rect(colour = 'black',  
+                                         size = 0.5,
+                                         linetype = 'solid'),
+        ## increase font sizes
+        # legend fonds
+        legend.title = element_text(size = rel(1.5)),
+        legend.text = element_text(size = rel(1.25)),
+        # facet title fonts
+        strip.text.y = element_text(size = rel(1.5)),
+        strip.text.x = element_text(size = rel(1.5)),
+        # axis tick mark labels
+        axis.text.x = element_text(size = rel(1.5)),
+        axis.text.y = element_text(size = rel(1.5)),
+        # axis titles
+        axis.title.x = element_text(size = rel(1.5)),
+        axis.title.y = element_text(size = rel(1.5)))
+
+
+```
+
+`scale_color_brewer()` is a command from the `RColorBrewer` package that changes the default set of colors that ggplot uses.  It's an alternative to setting colours and fills (use `scale_fill_brewer`) individually, which can break easily if your data changes.
+
+`guides()` controls legend appearance.  Each entry sets the appearance for one aesthetic in the plot.
+
+`theme()` controls fonts, more legend appearances (the settings inside `theme()` will apply to all legends in a plot), axis tick marks, and many other components.
+
+Appearances can also be set outside of a ggplot command, to generate a set of plots with identical or similar appearances - this is useful for creating figures for an article or presentation.
+
+```{r, echo = TRUE}
+
+# set theme for multiple plots
+theme_set(theme_bw())
+theme_update(legend.position = 'bottom',
+              legend.background = element_rect(colour = 'black',  
+                                               size = 0.5,
+                                               linetype = 'solid'),
+              legend.title = element_text(size = rel(1.5)),
+              legend.text = element_text(size = rel(1.25)),
+              strip.text.y = element_text(size = rel(1.5)),
+              strip.text.x = element_text(size = rel(1.5)),
+              axis.text.x = element_text(angle = 45,
+                                         hjust = 1,
+                                         size = rel(1.5)),
+              axis.text.y = element_text(size = rel(1.5)),
+              axis.title.x = element_text(size = rel(1.5)),
+              axis.title.y = element_text(size = rel(1.5)))
+
+# create variable that holds legend parameters - title cannot be set this way with multiple legens per plot
+legend.type = guide_legend(nrow = 2,
+                           title.position = 'top',
+                           title.hjust = 0.5)
+
+## Stacked bar plot
+
+ggplot(mpg, aes(x = manufacturer)) +
+  geom_bar(aes(fill = class),
+           stat = 'count', position = 'stack') +
+  guides(fill = legend.type)
+
+txhousing.plot = subset(txhousing, city %in% c('Abilene', 'Irving', 'Paris', 'Victoria') &
+                          !is.na(listings))
+
+## Point and line plot
+
+ggplot(txhousing.plot, aes(x = date, y = listings)) +
+  geom_point(aes(colour = city), size = 2) +
+  geom_line(aes(colour = city), size = 1.5) +
+  guides(colour = legend.type)
+
+tips.plot = tips
+tips.plot$pct = tips.plot$tip / tips.plot$total_bill
+
+tips.plot$day = factor(tips.plot$day,
+                       levels = c('Thur', 'Fri', 'Sat', 'Sun'),
+                       ordered = TRUE)
+
+## Box plot
+
+ggplot(tips.plot, aes(x = day, y = pct)) +
+  geom_boxplot(aes(colour = sex), size = 1) +
+  facet_grid(. ~ time) +
+  guides(colour = legend.type)
+
+```
+
+# Basic examples
+
+## Scatterplot plus linear regression line
+```{r, echo = TRUE}
+txhousing.trim = subset(txhousing, !is.na(listings) & !is.na(sales))
+
+ggplot(txhousing.trim,
+       aes(x = listings, y = sales)) +
+  geom_point() +
+  geom_smooth(method = 'lm')  # add se = FALSE to geom_smooth() to remove confidence region
+
+```
+
+Get the regression equation, $R^2$ value and significance level:
+
+```{r, echo = TRUE}
+listings.sales.lm = lm(sales ~ listings,
+                       data = txhousing.trim)
+
+summary(listings.sales.lm)
+```
+
+## Scatterplot plus marginal histogram
+
+Install and load the `ggExtra` package to create this plot.
+
+```{r, echo = TRUE}
+
+tx.plot = ggplot(txhousing.trim,
+                 aes(x = listings, y = sales)) +
+          geom_point()
+
+ggMarginal(tx.plot, type = 'histogram', fill = 'white')
+
+```
+
+## Combining data frames on one plot
+
+Different data frames can be used for different calls of `geom_plottype` by specifying the data frame before `aes()`.
+
+```{r, echo = TRUE}
+
+msleep.carni = subset(msleep, vore == 'carni')
+msleep.herbi = subset(msleep, vore == 'herbi')
+msleep.omni = subset(msleep, vore == 'omni')
+
+# create legend key to specify colors and labels
+msleep.colours = c(carni = 'red',
+                   herbi = 'darkgreen',
+                   omni = 'blue')
+
+# original plot has only carnivore data
+ggplot(msleep.carni, aes(x = sleep_total, y = sleep_rem)) +
+  geom_point(aes(colour = vore), size = 2) +
+  
+  # add in the herbivore data
+  geom_point(data = msleep.herbi,
+             aes(colour = vore), size = 2) +
+  
+  # add in the omnivore data
+  geom_point(data = msleep.omni,
+             aes(colour = vore), size = 2) +
+  
+  # add the legend
+  scale_fill_manual(values = msleep.colours)
+  
+
+```
+
+## Pie chart
+
+Pie charts in ggplot are stacked bar charts in polar coordinates.
+
+```{r, echo = TRUE}
+
+pie.data = data.frame(type = c('Apple', 'Blueberry', 'Sweet Potato', 'Coconut Cream', 'Peach', 'Pumpkin'),
+                      number = c(10, 7, 9, 13, 15, 12))
+
+ggplot(pie.data, aes(x = factor(""),  # dummy variable to put all data in the same bar
+                     y = number)) + 
+  
+  geom_bar(aes(fill = type),
+           width = 1,  # pie chart is filled in at the center
+           stat = 'identity',  # plotting data, not counts
+           position = 'stack') +   # stacked chart
+  
+  coord_polar(theta = 'y') +  # convert bar chart to pie chart
+  
+  scale_fill_brewer(palette = 'Set2') +  # change color set
+  
+  guides(fill = guide_legend('Type of Pie',  # change legend title
+                             nrow = 2)) +  # put entries into 2 rows
+  
+  theme_bw() + 
+  
+  theme(legend.position = 'bottom',  
+        # blank out the axis title, labels and tick marks for a clean look
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())  
+
+```
+
+## Adding error bars
+
+```{r, echo = FALSE}
+
+err.data = data.frame(day = c('Last Week', 'Yesterday', 'Today', 'Tomorrow', 'Next Week'),
+                      temp = c(82.1, 50.4, 42.9, 39.9, 75.0),
+                      temp.min = c(80, 61, 48, 43, 82),
+                      temp.max = c(84, 45, 32, 29, 70))
+
+err.data$day = factor(err.data$day,
+                      levels = c('Last Week', 'Yesterday', 'Today', 'Tomorrow', 'Next Week'),
+                      ordered = TRUE)
+
+```
+
+To include error bars on a plot (point, line, bar or other), the upper and lower error limits must be stored in two separate columns as absolute values, not +/- percent or value.
+
+```{r, echo = TRUE}
+
+head(err.data)
+
+ggplot(err.data, aes(x = day, y = temp)) +
+  
+  geom_bar(width = 0.5, fill = 'red',
+           stat = 'identity') +
+  
+  geom_errorbar(aes(x = day,  # same x-aesthetic as the bar chart
+                    ymin = temp.min,  # define lower and upper limits of error bars
+                    ymax = temp.max),
+                color = 'black',  # set color to contrast with bar color
+                width = 0.3)  # decrease the width of the horizontal part of the error bars
+
+```
+
+## Labels on graphs
+
+Use `geom_label()` or `geom_text()` to add text to graphs.  `geom_label` puts text in a rectangle with the same line color as the font color, while `geom_text()` just adds text.
+
+Simple labels with location, text, color, size and other aesthetics specified manually:
+
+```{r, echo = TRUE}
+
+ggplot(err.data, aes(x = day, y = temp)) +
+  geom_bar(width = 0.5, fill = 'red',
+           stat = 'identity') +
+  geom_errorbar(aes(x = day, ymin = temp.min, ymax = temp.max),
+                color = 'black', width = 0.3) +
+  
+  geom_text(aes(x = 'Today',  # label the 'Today' bar
+                y = 70,  # set the y-coordinate
+                label = 'This is\ntoday.'),  # label text
+            color = 'blue', size = 8) +  # label color and size are not determiend by data, so are outside aes()
+  
+  geom_label(aes(x = 'Yesterday',  # label the 'Yesterday' bar
+                 y = 75,  # set the y-coordinate
+                 label = 'That was\nyesterday.'), # label text
+             color = 'darkgreen', size = 6)  # set label color, size manually
+
+
+```
+
+This syntax works for single-facet plots or for applying identical labels to all facets of a plot.  To apply many labels or vary labels by facets, the label text and location should be stored in the data frame as additional columns.
+
+```{r, echo = TRUE}
+
+# create extra column for label
+# label position will be the same in all facets - no need for position columns
+diamonds.trim$label.text = NA
+
+# assign label text based on values of cut and clarity
+# the '\n' character inserts a new line in the label
+diamonds.trim$label.text[diamonds.trim$cut == 'Fair' & diamonds.trim$clarity == 'IF'] = 'Low\nQuality'
+diamonds.trim$label.text[diamonds.trim$cut == 'Fair' & diamonds.trim$clarity == 'I1'] = 'Moderate\nQuality'
+diamonds.trim$label.text[diamonds.trim$cut == 'Ideal' & diamonds.trim$clarity == 'I1'] = 'Moderate\nQuality'
+diamonds.trim$label.text[diamonds.trim$cut == 'Ideal' & diamonds.trim$clarity == 'IF'] = 'Highest\nQuality'
+
+ggplot(diamonds.trim,
+       aes(x = carat, y = price)) +
+  geom_point(aes(colour = color),
+             size = 2) +
+  
+  ## Note that label position is not inside the aes() command because it is set manually
+  geom_label(aes(label = label.text),
+             x = 4, y = 5000, size = 4, color = 'darkgreen') +
+  
+  facet_grid(cut ~ clarity) +
+  ylab('Diamond Price (USD/diamond)') +
+  xlab('Carat') +
+  theme_bw() +
+  scale_color_brewer(palette = 'Set1') +
+  guides(colour = guide_legend('Diamond Color', nrow = 2, byrow = TRUE)) +
+  theme(legend.position = 'bottom')
+
+```
+
+# Automatically saving plots
+
+`png(file = 'filename.png')`  and `svg(file = 'filename.svg')` commands save plots with optional specific dimensions and, for PNG images, resolution.  The image-creation command goes immediately before the plot creation (ie line before `ggplot()` is called), and the command `dev.off()` goes immediately after plot creation.  When these commands are used, the plot does not display.
+
+Plots can be saved manually via point-and-click, but using the commands makes it much easier to update figures without having to re-specify image size each time.  The command also allows resolution to be specified if saving PNG images for Word documents and PowerPoint presentations, which is essential if the figure size will be altered at all in the document.
+
+```{r, echo = TRUE}
+
+# plot to save as PNG
+png('diamonds-scatter.png', width = 3000, height = 3000, res = 500)
+ggplot(diamonds.trim,
+       aes(x = carat, y = price)) +
+  geom_point(aes(colour = color),
+             size = 2) +
+  
+  ## Note that label position is not inside the aes() command because it is set manually
+  geom_label(aes(label = label.text),
+             x = 4, y = 5000, size = 4, color = 'darkgreen') +
+  
+  facet_grid(cut ~ clarity) +
+  ylab('Diamond Price (USD/diamond)') +
+  xlab('Carat') +
+  theme_bw() +
+  scale_color_brewer(palette = 'Set1') +
+  guides(colour = guide_legend('Diamond Color', nrow = 2, byrow = TRUE)) +
+  theme(legend.position = 'bottom')
+dev.off()
+```
+
+SVG files will be larger in size than PNG files, particularly for plots showing a lot of data.  The plot below saves at about 20 MB.
+
+```{r, echo = TRUE}
+# plot to save as SVG - cannot specify resolution
+svg('diamonds-scatter.svg', width = 5, height = 5)
+ggplot(diamonds.trim,
+       aes(x = carat, y = price)) +
+  geom_point(aes(colour = color),
+             size = 2) +
+  
+  ## Note that label position is not inside the aes() command because it is set manually
+  geom_label(aes(label = label.text),
+             x = 4, y = 5000, size = 4, color = 'darkgreen') +
+  
+  facet_grid(cut ~ clarity) +
+  ylab('Diamond Price (USD/diamond)') +
+  xlab('Carat') +
+  theme_bw() +
+  scale_color_brewer(palette = 'Set1') +
+  guides(colour = guide_legend('Diamond Color', nrow = 2, byrow = TRUE)) +
+  theme(legend.position = 'bottom')
+dev.off()
+
+```
+
+# A ggplot hack: breaking the y-axis
+
+This hack involves the creative use of facets and some optional image processing in Inkscape or another svg graphics editor.  Data should be in the long format, so categorical variables can be added and used for faceting.
+
+```{r, echo = TRUE}
+
+theme_replace(axis.text.x = element_text(size = rel(1.5)))
+
+difficult.data = data.frame(x.dat = c(0, 12, 500, 150, 75),
+                            y.dat = c(-150000, 800, 0.1, -130000, 500),
+                            id = c('cat1', 'cat1', 'cat2', 'cat2', 'cat1'))
+
+ggplot(difficult.data, aes(x = x.dat, y = y.dat)) +
+  geom_point(aes(colour = id),
+             size = 3)
+
+```
+
+Add a variable dividing points into two groups, one appearing above the axis break and one below the axis break.  Facet on this variable and set the y-axis scales to free, so the scale on both facets is determined by the data in that facet.
+
+```{r, echo = TRUE}
+
+difficult.data$y.axis[difficult.data$y.dat < 0] = 'below'
+difficult.data$y.axis[difficult.data$y.dat >= 0] = 'above'
+
+ggplot(difficult.data, aes(x = x.dat, y = y.dat)) +
+  geom_point(aes(colour = id),
+             size = 3) +
+  facet_grid(y.axis ~ .,
+             scales = 'free_y') +
+  theme(strip.text.y = element_blank())
+
+```
+
+Include y = 0 on both facets by adding a dummy point that can be removed in postprocessing:
+
+```{r, echo = TRUE}
+
+difficult.data = rbind(difficult.data,
+                       data.frame(x.dat = 0,
+                                  y.dat = 0,
+                                  id = 'cat1',
+                                  y.axis = 'below'))
+
+ggplot(difficult.data, aes(x = x.dat, y = y.dat)) +
+  geom_point(aes(colour = id),
+             size = 3) +
+  facet_grid(y.axis ~ .,
+             scales = 'free_y') +
+  theme(strip.text.y = element_blank())
+
+```
+
+Clean up with image post-processing or leave as is.
+
+```{r, echo = FALSE}
+# Inkscape demo
+svg('difficult-data.svg', width = 4, height = 5)
+ggplot(difficult.data, aes(x = x.dat, y = y.dat)) +
+  geom_point(aes(colour = id),
+             size = 3) +
+  facet_grid(y.axis ~ .,
+             scales = 'free_y') +
+  theme(strip.text.y = element_blank())
+dev.off()
+```
+
+# Further resources
+
+* Use `?functionname` to access built-in R help
+* Google "ggplot + [action]" to find solutions from R's online user base
+
+## Helpful websites
+
+1. [Getting started in ggplot](http://r4stats.com/examples/graphics-ggplot2/)
+2. [R cookbook](http://www.cookbook-r.com/Graphs/)
+3. [ggplot cheatsheet](http://zevross.com/blog/2014/08/04/beautiful-plotting-in-r-a-ggplot2-cheatsheet-3/)
+4. [Fifty example plots with code](http://r-statistics.co/Top50-Ggplot2-Visualizations-MasterList-R-Code.html)
+5. [More example plots](http://www.r-graph-gallery.com/portfolio/ggplot2-package/)
+6. [Map and shapefile example #1](https://www.r-bloggers.com/plotting-choropleths-from-shapefiles-in-r-with-ggmap-toronto-neighbourhoods-by-population/)
+7. [Map and shapefile example #2](http://www.markhneedham.com/blog/2014/11/17/r-ggmap-overlay-shapefile-with-filled-polygon-of-regions/)
